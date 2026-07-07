@@ -44,9 +44,9 @@
     <div class="step-rail"><span class="step-no">2</span></div>
     <div class="sheet-body">
       <h2>Persoane</h2>
-      <p class="hint">Ziua de naștere (opțional, format ZZ.LL) — persoana este liberă în acea zi. Indisponibil: interval de zile din lună în care persoana nu primește sectoare. Max. zile: numărul maxim de zile de sector pe lună.</p>
+      <p class="hint">Ziua de naștere (opțional, format ZZ.LL) — persoana este liberă în acea zi. Absențe: una sau mai multe perioade din lună (de la – până la) în care persoana nu primește sectoare. Max. zile: numărul maxim de zile de sector pe lună.</p>
       <div class="roster-head">
-        <span>Nume</span><span>Zi de naștere</span><span>Indisponibil (de la – până la)</span><span>Max. zile/lună</span><span></span>
+        <span>Nume</span><span>Zi de naștere</span><span>Absențe (perioade din lună)</span><span>Max. zile/lună</span><span></span>
       </div>
       <div id="persons-list"></div>
       <button class="btn ghost" id="add-person">+ Adaugă persoană</button>
@@ -110,7 +110,7 @@
 
 <footer class="foot">Datele se păstrează în acest browser. Documentul se generează local — nimic nu se trimite pe internet.</footer>
 
-<script src="lib/docx.umd.js"></script>
+<script src="lib/jszip.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

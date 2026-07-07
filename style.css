@@ -123,3 +123,13 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
   .person-row{grid-template-columns:1fr 1fr; grid-auto-rows:auto}
   .step-rail{display:none}
 }
+
+/* absences: multiple periods per person */
+.absences{display:flex; flex-wrap:wrap; gap:6px; align-items:center}
+.abs-tag{display:inline-flex; align-items:center; gap:4px; border:1px solid var(--rule);
+  border-radius:4px; padding:2px 4px; background:#fff}
+.abs-tag input{width:52px; border:none; padding:3px 2px; text-align:center}
+.btn-x.sm{font-size:14px; padding:2px}
+.abs-add{border:1px dashed var(--rule); background:none; color:var(--mut); font:500 12px "IBM Plex Sans",sans-serif;
+  border-radius:4px; padding:5px 8px; cursor:pointer}
+.abs-add:hover{color:var(--cobalt); border-color:var(--cobalt)}

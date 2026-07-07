@@ -23,8 +23,7 @@ function defaultState() {
     options: { birthdayFree: true, maxDays: true, unavail: true, minGap: true },
     persons: Object.entries(P).map(([name, id]) => ({
       id, name, birthday: '',
-      unavailFrom: name === 'Loredana' ? 8 : null,
-      unavailTo:   name === 'Loredana' ? 31 : null,
+      absences: name === 'Loredana' ? [{ from: 8, to: 31 }] : [],
       maxDays: (name === 'Cristi' || name === 'Luiza') ? 12 : null,
     })),
     sectors: [
@@ -55,6 +54,13 @@ function loadState() {
     const raw = localStorage.getItem('rota-state');
     if (!raw) return null;
     const s = JSON.parse(raw);
+    // migrare: perioadă unică -> listă de perioade
+    for (const p of s.persons || []) {
+      if (!Array.isArray(p.absences)) {
+        p.absences = (p.unavailFrom != null) ? [{ from: p.unavailFrom, to: p.unavailTo ?? 31 }] : [];
+        delete p.unavailFrom; delete p.unavailTo;
+      }
+    }
     const maxNum = JSON.stringify(s).match(/"id(\d+)"/g) || [];
     uid = 1 + Math.max(0, ...maxNum.map(m => parseInt(m.match(/\d+/)[0], 10)));
     return s;
@@ -78,6 +84,7 @@ const el = (tag, attrs = {}, ...kids) => {
 };
 const daysInMonth = () => new Date(state.year, state.month + 1, 0).getDate();
 const personById = id => state.persons.find(p => p.id === id);
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 /* ═══════════════ RANDARE UI ═══════════════ */
 
@@ -97,6 +104,23 @@ function updateMonthHint() {
     `${MONTHS[state.month]} ${state.year} are ${n} zile și începe într-o zi de ${first.toLowerCase()}.`;
 }
 
+function renderAbsences(p) {
+  const wrap = el('div', { class: 'absences' });
+  p.absences.forEach((a, i) => {
+    wrap.append(el('span', { class: 'abs-tag' },
+      el('input', { type: 'number', min: 1, max: 31, value: a.from,
+        'aria-label': 'Absent de la', oninput: e => { a.from = +e.target.value || 1; saveState(); } }),
+      '–',
+      el('input', { type: 'number', min: 1, max: 31, value: a.to,
+        'aria-label': 'Absent până la', oninput: e => { a.to = +e.target.value || 31; saveState(); } }),
+      el('button', { class: 'btn-x sm', title: 'Șterge perioada',
+        onclick: () => { p.absences.splice(i, 1); saveState(); renderPersons(); } }, '×')));
+  });
+  wrap.append(el('button', { class: 'abs-add', title: 'Adaugă perioadă de absență',
+    onclick: () => { p.absences.push({ from: 1, to: 1 }); saveState(); renderPersons(); } }, '+ perioadă'));
+  return wrap;
+}
+
 function renderPersons() {
   const list = $('#persons-list');
   list.innerHTML = '';
@@ -106,14 +130,7 @@ function renderPersons() {
         oninput: e => { p.name = e.target.value; saveState(); renderSectors(); renderWeekdayRules(); } }),
       el('input', { type: 'text', value: p.birthday, placeholder: 'ZZ.LL', 'aria-label': 'Zi de naștere',
         oninput: e => { p.birthday = e.target.value.trim(); saveState(); } }),
-      el('div', { class: 'range' },
-        el('input', { type: 'number', min: 1, max: 31, value: p.unavailFrom ?? '', placeholder: '—',
-          'aria-label': 'Indisponibil de la',
-          oninput: e => { p.unavailFrom = e.target.value ? +e.target.value : null; saveState(); } }),
-        '–',
-        el('input', { type: 'number', min: 1, max: 31, value: p.unavailTo ?? '', placeholder: '—',
-          'aria-label': 'Indisponibil până la',
-          oninput: e => { p.unavailTo = e.target.value ? +e.target.value : null; saveState(); } })),
+      renderAbsences(p),
       el('input', { type: 'number', min: 1, max: 31, value: p.maxDays ?? '', placeholder: '—',
         'aria-label': 'Maxim zile pe lună',
         oninput: e => { p.maxDays = e.target.value ? +e.target.value : null; saveState(); } }),
@@ -223,9 +240,10 @@ function birthdayDay(p) {
   return (+m[2] === state.month + 1) ? +m[1] : null;
 }
 function isAvailable(p, day) {
-  if (state.options.unavail && p.unavailFrom != null) {
-    const to = p.unavailTo ?? 31;
-    if (day >= p.unavailFrom && day <= to) return false;
+  if (state.options.unavail) {
+    for (const a of (p.absences || [])) {
+      if (day >= Math.min(a.from, a.to) && day <= Math.max(a.from, a.to)) return false;
+    }
   }
   if (state.options.birthdayFree && birthdayDay(p) === day) return false;
   return true;
@@ -325,8 +343,9 @@ function verify(schedule, sectors) {
     if (bd.length) notes.push('Zile de naștere libere: ' + bd.map(p => `${p.name} (${birthdayDay(p)})`).join(', ') + '.');
   }
   if (state.options.unavail) {
-    const un = state.persons.filter(p => p.unavailFrom != null);
-    if (un.length) notes.push('Indisponibilități respectate: ' + un.map(p => `${p.name} (${p.unavailFrom}–${p.unavailTo ?? N})`).join(', ') + '.');
+    const un = state.persons.filter(p => (p.absences || []).length);
+    if (un.length) notes.push('Absențe respectate: ' + un.map(p =>
+      `${p.name} (${p.absences.map(a => `${a.from}–${a.to}`).join(', ')})`).join('; ') + '.');
   }
   if (state.options.maxDays) {
     const mx = state.persons.filter(p => p.maxDays != null);
@@ -362,65 +381,143 @@ function renderPreview(schedule, sectors) {
   $('#preview-wrap').hidden = false;
 }
 
-/* ═══════════════ EXPORT WORD ═══════════════ */
+/* ═══════════════ EXPORT WORD — structură identică documentelor originale ═══════════════
+   Pagină A4 vedere 16838×11906, margini 113/113/284/113, titlul în antet (bold, 20pt),
+   tabel „TableGrid” lat 16566: chenar exterior gros (sz 18), linii interioare subțiri (sz 6),
+   linii verticale groase între persoane, fiecare persoană cu 2 subcoloane (linia dintre ele
+   invizibilă), text Calibri 16pt, nume și sectoare bold, zilele ca paragrafe centrate. */
+
+const W_NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ' +
+             'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+const B18 = '<w:val="single" w:sz="18" w:space="0" w:color="auto"/>'; // helper marker (nefolosit direct)
+
+function bd(side, sz) { return `<w:${side} w:val="single" w:sz="${sz}" w:space="0" w:color="auto"/>`; }
+function bdNil(side) { return `<w:${side} w:val="nil"/>`; }
+
+function paraXML(text, { bold = false, size = 32 } = {}) {
+  const rpr = `<w:rPr>${bold ? '<w:b/><w:bCs/>' : ''}<w:sz w:val="${size}"/><w:szCs w:val="${size}"/></w:rPr>`;
+  const run = text === '' ? '' : `<w:r>${rpr}<w:t xml:space="preserve">${esc(text)}</w:t></w:r>`;
+  return `<w:p><w:pPr><w:jc w:val="center"/>${rpr}</w:pPr>${run}</w:p>`;
+}
+function cellXML(w, borders, paras, { span = 1, vCenter = true } = {}) {
+  return '<w:tc><w:tcPr>' +
+    `<w:tcW w:w="${w}" w:type="dxa"/>` +
+    (span > 1 ? `<w:gridSpan w:val="${span}"/>` : '') +
+    `<w:tcBorders>${borders}</w:tcBorders>` +
+    (vCenter ? '<w:vAlign w:val="center"/>' : '') +
+    '</w:tcPr>' + (paras.join('') || paraXML('')) + '</w:tc>';
+}
+
+function buildDocumentXML(schedule, sectors, persons) {
+  const TOTAL = 16566, FIRST = 1506;
+  const sub = Math.floor((TOTAL - FIRST) / (persons.length * 2));
+  const grid = ['<w:tblGrid>', `<w:gridCol w:w="${FIRST}"/>`];
+  persons.forEach(() => { grid.push(`<w:gridCol w:w="${sub}"/><w:gridCol w:w="${sub}"/>`); });
+  grid.push('</w:tblGrid>');
+
+  // rând antet: nume persoane (gridSpan 2, chenar gros)
+  let head = '<w:tr><w:trPr><w:trHeight w:val="858"/></w:trPr>' +
+    cellXML(FIRST, bd('top',18)+bd('left',18)+bd('bottom',18)+bd('right',18), [paraXML('', {bold:true})]);
+  persons.forEach(p => {
+    head += cellXML(sub*2, bd('top',18)+bd('left',18)+bd('bottom',18)+bd('right',18),
+      [paraXML(p.name, {bold:true})], { span: 2 });
+  });
+  head += '</w:tr>';
+
+  // rânduri sectoare
+  const rows = [head];
+  sectors.forEach((s, si) => {
+    const isLast = si === sectors.length - 1;
+    const rowB = (side) => bd(side, isLast && side === 'bottom' ? 18 : 6);
+    let tr = `<w:tr><w:trPr><w:trHeight w:val="1393"/></w:trPr>` +
+      cellXML(FIRST, bd('top',6)+bd('left',18)+rowB('bottom')+bd('right',18),
+        [paraXML(s.name, {bold:true})]);
+    persons.forEach(p => {
+      const days = Object.entries(schedule[s.id]).filter(([, pid]) => pid === p.id)
+        .map(([d]) => +d).sort((a, b) => a - b);
+      const half = Math.ceil(days.length / 2);
+      const c1 = days.slice(0, half).map(d => paraXML(String(d)));
+      const c2 = days.slice(half).map(d => paraXML(String(d)));
+      tr += cellXML(sub, bd('top',6)+bd('left',18)+rowB('bottom')+bdNil('right'), c1, { vCenter:false });
+      tr += cellXML(sub, bd('top',6)+bdNil('left')+rowB('bottom')+bd('right',18), c2, { vCenter:false });
+    });
+    tr += '</w:tr>';
+    rows.push(tr);
+  });
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document ${W_NS}><w:body>
+<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="${TOTAL}" w:type="dxa"/>
+<w:tblBorders>${bd('top',18)+bd('left',18)+bd('bottom',18)+bd('right',18)+bd('insideH',6)+bd('insideV',6)}</w:tblBorders>
+<w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/></w:tblPr>
+${grid.join('')}${rows.join('')}</w:tbl>
+<w:p><w:pPr><w:rPr><w:sz w:val="2"/></w:rPr></w:pPr></w:p>
+<w:sectPr><w:headerReference w:type="default" r:id="rIdHdr"/>
+<w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>
+<w:pgMar w:top="113" w:right="113" w:bottom="284" w:left="113" w:header="170" w:footer="227" w:gutter="0"/>
+<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>
+</w:body></w:document>`;
+}
+
+function buildHeaderXML() {
+  const title = `${state.title} – Luna ${MONTHS[state.month]} ${state.year}`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr ${W_NS}><w:p><w:pPr><w:pStyle w:val="Header"/><w:jc w:val="center"/>
+<w:rPr><w:b/><w:bCs/><w:sz w:val="40"/><w:szCs w:val="40"/></w:rPr></w:pPr>
+<w:r><w:rPr><w:b/><w:bCs/><w:sz w:val="40"/><w:szCs w:val="40"/></w:rPr>
+<w:t xml:space="preserve">${esc(title)}</w:t></w:r></w:p></w:hdr>`;
+}
+
+function buildStylesXML() {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles ${W_NS}>
+<w:docDefaults><w:rPrDefault><w:rPr>
+<w:rFonts w:ascii="Calibri" w:eastAsia="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>
+<w:sz w:val="22"/><w:szCs w:val="22"/><w:lang w:val="ro-RO" w:eastAsia="en-US" w:bidi="ar-SA"/>
+</w:rPr></w:rPrDefault>
+<w:pPrDefault><w:pPr><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>
+<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>
+<w:style w:type="paragraph" w:styleId="Header"><w:name w:val="header"/><w:basedOn w:val="Normal"/>
+<w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:style>
+<w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/>
+<w:tblPr><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/>
+<w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style>
+<w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/><w:basedOn w:val="TableNormal"/>
+<w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>
+<w:tblPr><w:tblBorders>${bd('top',4)+bd('left',4)+bd('bottom',4)+bd('right',4)+bd('insideH',4)+bd('insideV',4)}</w:tblBorders></w:tblPr></w:style>
+</w:styles>`;
+}
 
 async function buildDocx(schedule, sectors) {
-  const d = window.docx;
   const persons = state.persons.filter(p => p.name.trim());
-  const nCols = persons.length + 1;
-  const TOTAL = 16612;                               // A4 landscape − margini (DXA)
-  const first = 2000;
-  const per = Math.floor((TOTAL - first) / persons.length);
-  const widths = [first, ...persons.map(() => per)];
-
-  const cell = (kids, w, opts = {}) => new d.TableCell({
-    width: { size: w, type: d.WidthType.DXA },
-    verticalAlign: d.VerticalAlign.CENTER,
-    margins: { top: 60, bottom: 60, left: 80, right: 80 },
-    shading: opts.shade ? { type: d.ShadingType.CLEAR, fill: 'EDF1F5' } : undefined,
-    children: kids,
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml',
+`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>
+</Types>`);
+  zip.file('_rels/.rels',
+`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`);
+  zip.file('word/_rels/document.xml.rels',
+`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+<Relationship Id="rIdHdr" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>
+</Relationships>`);
+  zip.file('word/document.xml', buildDocumentXML(schedule, sectors, persons));
+  zip.file('word/header1.xml', buildHeaderXML());
+  zip.file('word/styles.xml', buildStylesXML());
+  return zip.generateAsync({
+    type: 'blob',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   });
-  const para = (text, bold = false, size = 22) => new d.Paragraph({
-    alignment: d.AlignmentType.CENTER,
-    children: [new d.TextRun({ text, bold, size })],
-  });
-
-  const headRow = new d.TableRow({ tableHeader: true, children: [
-    cell([para('', true)], widths[0], { shade: true }),
-    ...persons.map((p, i) => cell([para(p.name, true, 24)], widths[i + 1], { shade: true })),
-  ]});
-
-  const rows = [headRow];
-  for (const s of sectors) {
-    const tds = [cell([para(s.name, true, 24)], widths[0], { shade: true })];
-    persons.forEach((p, i) => {
-      const days = Object.entries(schedule[s.id]).filter(([, pid]) => pid === p.id).map(([dd]) => +dd).sort((a, b) => a - b);
-      const paras = [];
-      for (let k = 0; k < days.length; k += 3) paras.push(para(days.slice(k, k + 3).join('  '), true));
-      if (!paras.length) paras.push(para(''));
-      tds.push(cell(paras, widths[i + 1]));
-    });
-    rows.push(new d.TableRow({ children: tds }));
-  }
-
-  const doc = new d.Document({ sections: [{
-    properties: {
-      page: {
-        size: { width: 11906, height: 16838, orientation: d.PageOrientation.LANDSCAPE },
-        margin: { top: 300, bottom: 300, left: 113, right: 113 },
-      },
-    },
-    children: [
-      new d.Paragraph({
-        alignment: d.AlignmentType.CENTER,
-        spacing: { after: 160 },
-        children: [new d.TextRun({ text: `${state.title} – Luna ${MONTHS[state.month]} ${state.year}`, bold: true, size: 32 })],
-      }),
-      new d.Table({ columnWidths: widths, width: { size: TOTAL, type: d.WidthType.DXA }, rows }),
-    ],
-  }]});
-
-  return d.Packer.toBlob(doc);
 }
 
 function downloadBlob(blob, name) {
@@ -458,7 +555,7 @@ async function generate() {
   if (res.error) {
     report.append(el('div', { class: 'error' },
       `Nu s-a găsit o repartizare validă: în ziua ${res.error.day}, sectorul „${res.error.sector}” nu are nicio persoană disponibilă. ` +
-      'Relaxează restricțiile (interval minim, indisponibilități, limite de zile) sau bifează mai multe persoane la acest sector.'));
+      'Relaxează restricțiile (interval minim, absențe, limite de zile) sau bifează mai multe persoane la acest sector.'));
     return;
   }
   lastSchedule = res;
@@ -480,7 +577,7 @@ $('#opt-maxdays').addEventListener('change', e => { state.options.maxDays = e.ta
 $('#opt-unavail').addEventListener('change', e => { state.options.unavail = e.target.checked; saveState(); });
 $('#opt-mingap').addEventListener('change', e => { state.options.minGap = e.target.checked; saveState(); });
 $('#add-person').addEventListener('click', () => {
-  state.persons.push({ id: nid(), name: '', birthday: '', unavailFrom: null, unavailTo: null, maxDays: null });
+  state.persons.push({ id: nid(), name: '', birthday: '', absences: [], maxDays: null });
   saveState(); renderPersons(); renderSectors(); renderWeekdayRules();
 });
 $('#add-sector').addEventListener('click', () => {
