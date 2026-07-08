@@ -11,7 +11,7 @@ Aplicație web care generează tabelul lunar de sectoare (Word .docx) pe baza pe
   - **Interval minim** — zile minime între două zile ale aceleiași persoane la același sector.
 - **Restricții selectabile**: zi liberă de ziua de naștere, limite maxime de zile, indisponibilități, interval minim, plus **restricții pe zile ale săptămânii** (ex. sâmbăta anumite persoane pot avea doar anumite sectoare).
 - **Reguli permanente**: un sector are o singură persoană pe zi; o persoană are cel mult un sector pe zi (în afara celor independente).
-- **Generează tabel**: alege luna și anul, apasă butonul — aplicația calculează repartizarea (mii de încercări, o alege pe cea mai echilibrată), afișează raportul de verificare, previzualizarea și descarcă documentul Word.
+- **Generează tabel**: alege luna și anul, apasă butonul — aplicația calculează repartizarea (mii de încercări, o alege pe cea mai echilibrată), afișează raportul de verificare, previzualizarea și descarcă documentul Word. Documentul are **exact formatul tabelelor lunare originale**: A4 vedere, titlul în antet (bold, 20pt), tabel Calibri 16pt cu chenar gros între persoane și câte două sub-coloane de zile per persoană — aplicația folosește documentul original ca șablon, deci stilurile, fonturile și dimensiunile sunt identice.
 
 Aplicația pornește preconfigurată cu persoanele, sectoarele și restricțiile de la Acoperișul Speranței; totul se poate modifica, iar datele se salvează automat în browserul folosit.
 
@@ -41,7 +41,8 @@ Deschide `index.html` direct în browser — nu e nevoie de server sau instalare
 index.html        interfața aplicației
 style.css         stilurile
 app.js            logica: stare, algoritmul de repartizare, export Word
-lib/jszip.min.js  biblioteca de arhivare zip (inclusă local, fără dependențe externe)
+lib/jszip.min.js  biblioteca de arhivare (inclusă local)
+lib/template.js   documentul Word original, încorporat ca șablon de format
 ```
 
 ## Note
